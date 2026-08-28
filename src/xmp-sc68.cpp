@@ -25,7 +25,7 @@
 #endif
 
 #define PLUGIN_NAME    "SC68 (Atari ST / Amiga)"
-#define PLUGIN_VERSION "1.0.1"
+#define PLUGIN_VERSION "1.0.2"
 #define PREFIX_BYTES   2048
 #define MAX_MODULE_BYTES ((size_t)16u * 1024u * 1024u)
 #define INFO_WRITE_MAX 32766
