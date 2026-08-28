@@ -3,7 +3,7 @@
 #   /usr/bin/make          # host tests + 32-bit DLL
 #   /usr/bin/make dll      # dist/xmp-sc68.dll
 #   /usr/bin/make test     # host render/seek tests
-#   /usr/bin/make pack     # /workspace/xmp-sc68-1.0.zip
+#   /usr/bin/make pack     # /workspace/xmp-sc68-1.0.1.zip
 #
 # If `make` is a wrapper, invoke GNU make explicitly.
 
@@ -162,10 +162,10 @@ $(DIST)/xmp-sc68.dll: $(SRC)/xmp-sc68.cpp $(SRC)/xmp-sc68.def $(WIN_OBJS)
 	file $@
 
 pack: dll
-	rm -f /workspace/xmp-sc68-1.0.zip
+	rm -f /workspace/xmp-sc68-1.0.1.zip
 	mkdir -p $(DIST)/pack
 	cp -f $(DIST)/xmp-sc68.dll $(ROOT)/README.md $(DIST)/pack/
-	cd $(DIST)/pack && zip -9 /workspace/xmp-sc68-1.0.zip xmp-sc68.dll README.md
+	cd $(DIST)/pack && zip -9 /workspace/xmp-sc68-1.0.1.zip xmp-sc68.dll README.md
 	rm -rf $(DIST)/pack
 	ls -l /workspace/xmp-sc68-1.0.zip
 
