@@ -106,6 +106,18 @@ static int test_file(const char *path)
   printf("tracks: %d  total: %.1fs\n", inf.tracks, inf.total_len);
   for (i = 0; i < inf.tracks && i < 8; ++i)
     printf("  [%d] %.1fs  %s\n", i + 1, inf.len[i], inf.track_title[i]);
+  if (strstr(base, "sillyshuffle")) {
+    if (inf.len[0] > 179.4f && inf.len[0] < 180.6f) {
+      printf("FAIL  sillyshuffle dummy 180s length\n");
+      g_fail++;
+    }
+  }
+  if (strstr(base, "cream-1996")) {
+    if (inf.len[0] < 300.0f || inf.len[0] > 320.0f) {
+      printf("FAIL  cream-1996 expected ~307s (TIME/timedb)\n");
+      g_fail++;
+    }
+  }
 
   p = sc68_player_open(data, len, 44100);
   free(data);
@@ -178,6 +190,7 @@ int main(int argc, char **argv)
     "tests/samples/sillyshuffle.snd",
     "tests/samples/7-gates-jambala.sc68",
     "tests/samples/lethal-xcess-menu.sc68",
+    "tests/samples/buzz-jamcracker.sc68",
     NULL
   };
   int i, n = 0;
