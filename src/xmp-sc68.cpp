@@ -25,7 +25,7 @@
 #endif
 
 #define PLUGIN_NAME    "SC68 (Atari ST / Amiga)"
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.0.1"
 #define PREFIX_BYTES   2048
 #define MAX_MODULE_BYTES ((size_t)16u * 1024u * 1024u)
 #define INFO_WRITE_MAX 32766
@@ -699,14 +699,10 @@ static void WINAPI sc68_SetConfig(void *config, DWORD size)
   apply_cfg();
 }
 
-static const char g_exts[] =
-  "SC68\0"
-  "sc68\0"
-  "SNDH\0"
-  "sndh/snd\0";
+static const char g_exts[] = "SC68 / SNDH\0sc68/sndh/snd";
 
 static XMPIN g_xmpin = {
-  XMPIN_FLAG_CONFIG | XMPIN_FLAG_MULTIEXT,
+  XMPIN_FLAG_CONFIG,
   PLUGIN_NAME " " PLUGIN_VERSION,
   g_exts,
   sc68_About,

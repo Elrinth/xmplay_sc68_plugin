@@ -34,6 +34,7 @@ static int g_inited;
 
 struct sc68_player {
   sc68_t *sc68;
+  sc68_disk_t disk; /* owned; sc68_open does not free it */
   unsigned char *owned;
   size_t owned_len;
   int rate;
@@ -112,6 +113,189 @@ static int looks_sndh(const unsigned char *p, size_t n)
       return 1;
   }
   return 0;
+}
+
+
+/* Built-in Amiga replays (JamCrackerPro, ...) are ORG $8000. */
+#define REPLAY_ORG_AMIGA 0x8000u
+
+static void fix_replay_loadaddr(sc68_disk_t disk)
+{
+  disk68_t *d = (disk68_t *)disk;
+  int i;
+  if (!d)
+    return;
+  for (i = 0; i < d->nb_mus; ++i) {
+    music68_t *m = &d->mus[i];
+    if (m->replay && (m->hwflags & SC68_AGA) &&
+        (m->a0 == 0 || m->a0 == (unsigned)SC68_LOADADDR))
+      m->a0 = REPLAY_ORG_AMIGA;
+  }
+}
+
+static int pcm_peak16(const uint32_t *pcm, int n)
+{
+  int i, peak = 0;
+  for (i = 0; i < n; ++i) {
+    int16_t l = (int16_t)(pcm[i] & 0xFFFFu);
+    int16_t r = (int16_t)(pcm[i] >> 16);
+    int al = l < 0 ? -l : l;
+    int ar = r < 0 ? -r : r;
+    if (al > peak) peak = al;
+    if (ar > peak) peak = ar;
+  }
+  return peak;
+}
+
+/*
+ * Skip-render length for SND/SNDH (and any track) that has no TIME / timedb.
+ * Stop on: real SC68_LOOP well before the 180s dummy, sustained silence after
+ * audible audio, a repeating PCM fingerprint (looping chiptune), or 10 min.
+ */
+static float detect_track_len(disk68_t *disk, int track0)
+{
+  enum { RATE = 22050, CHUNK = 1024, CAP_SEC = 600, MIN_LOOP_SEC = 1 };
+  sc68_create_t cr;
+  sc68_t *s;
+  uint32_t pcm[CHUNK];
+  uint32_t fp[4096];
+  int nfp = 0, total = 0, silent = 0, heard = 0;
+  int cap, sil_need, code, n, i;
+
+  if (!disk || track0 < 0 || track0 >= disk->nb_mus)
+    return -1.0f;
+
+  memset(&cr, 0, sizeof cr);
+  cr.sampling_rate = RATE;
+  cr.name = "xmp-sc68-detect";
+  s = sc68_create(&cr);
+  if (!s)
+    return -1.0f;
+  if (sc68_open(s, disk) != 0) {
+    sc68_destroy(s);
+    return -1.0f;
+  }
+  if (sc68_play(s, track0 + 1, SC68_INF_LOOP) < 0) {
+    sc68_destroy(s);
+    return -1.0f;
+  }
+  sc68_process(s, 0, 0);
+
+  cap = RATE * CAP_SEC;
+  sil_need = RATE * 3 / 2; /* 1.5s */
+
+  while (total < cap) {
+    n = CHUNK;
+    code = sc68_process(s, pcm, &n);
+    if (code == SC68_ERROR || n <= 0)
+      break;
+
+    {
+      int peak = pcm_peak16(pcm, n);
+      uint32_t h = (uint32_t)peak * 2654435761u;
+      for (i = 0; i < n; i += 32)
+        h = h * 16777619u ^ (uint32_t)pcm[i];
+      if (nfp < (int)(sizeof fp / sizeof fp[0]))
+        fp[nfp++] = (h >> 11) & 0xFFFFFFu;
+
+      total += n;
+      if (peak >= 200) {
+        heard = 1;
+        silent = 0;
+      } else if (heard && peak < 80) {
+        silent += n;
+        if (silent >= sil_need) {
+          total -= silent;
+          if (total < RATE / 5)
+            total += silent / 2;
+          break;
+        }
+      }
+    }
+
+    /* Dummy TIME_DEF loop is 180s when first_fr==0; ignore that. */
+    if ((code & SC68_LOOP) && total < RATE * 170) {
+      sc68_destroy(s);
+      return (float)total / (float)RATE;
+    }
+    if (code & SC68_END)
+      break;
+
+    /* Repeating fingerprint (every ~0.25s to keep detect cheap). */
+    if (heard && (nfp & 7) == 0 &&
+        nfp >= (RATE / CHUNK) * (MIN_LOOP_SEC * 2)) {
+      int pmin = RATE / CHUNK * MIN_LOOP_SEC;
+      int pmax = nfp / 2;
+      int p;
+      if (pmax > RATE / CHUNK * 90)
+        pmax = RATE / CHUNK * 90;
+      for (p = pmin; p <= pmax; ++p) {
+        int ok = 1;
+        int a = nfp - p, b = nfp - 2 * p;
+        for (i = 0; i < p; ++i) {
+          if (fp[a + i] != fp[b + i]) {
+            ok = 0;
+            break;
+          }
+        }
+        if (ok) {
+          sc68_destroy(s);
+          return (float)(p * CHUNK) / (float)RATE;
+        }
+      }
+    }
+  }
+
+  sc68_destroy(s);
+  if (!heard && total <= 0)
+    return -1.0f;
+  if (!heard)
+    return -1.0f;
+  return (float)total / (float)RATE;
+}
+
+static float real_track_len(disk68_t *disk, int track0)
+{
+  music68_t *m;
+  double s;
+
+  if (!disk || track0 < 0 || track0 >= disk->nb_mus)
+    return (float)DEFAULT_LEN_SEC;
+  m = &disk->mus[track0];
+
+  /* Prefer SNDH TIME / sc68 timedb / SC68 SCTI — already in first_ms. */
+  if (m->has.time || m->first_fr > 0 || m->first_ms > 0) {
+    if (m->loops > 1 && m->loops_ms)
+      s = ((double)m->first_ms + (double)(m->loops - 1) * (double)m->loops_ms) / 1000.0;
+    else
+      s = (double)m->first_ms / 1000.0;
+    if (s > 0.05 && s < 86400.0)
+      return (float)s;
+  }
+
+  /* Unknown: skip-render detect for SND/SNDH (never in CheckFile).
+   * Multi-track .sc68 with missing SCTI keep the last-resort default. */
+  {
+    const char *g = disk->tags.tag.genre.val;
+    int sndh = 0;
+    if (g && (strstr(g, "SNDH") || strstr(g, "sndh")))
+      sndh = 1;
+    if (!sndh && disk->nb_mus != 1)
+      return (float)DEFAULT_LEN_SEC;
+  }
+  s = detect_track_len(disk, track0);
+  if (s > 0.05 && s < 86400.0) {
+    unsigned ms = (unsigned)(s * 1000.0 + 0.5);
+    unsigned frq = m->frq ? m->frq : 50u;
+    m->first_ms = ms;
+    m->first_fr = (unsigned)(s * (double)frq + 0.5);
+    m->loops_ms = m->first_ms;
+    m->loops_fr = m->first_fr;
+    m->loops = 1;
+    m->has.time = 1;
+    return (float)s;
+  }
+  return (float)DEFAULT_LEN_SEC;
 }
 
 int sc68_player_probe(const unsigned char *data, size_t len)
@@ -213,10 +397,10 @@ static int fill_info_from_disk(sc68_disk_t disk, sc68_info *out)
     sc68_music_info_t t;
     memset(&t, 0, sizeof t);
     if (sc68_music_info(0, &t, i + 1, disk) != 0) {
-      out->len[i] = (float)DEFAULT_LEN_SEC;
+      out->len[i] = real_track_len((disk68_t *)disk, i);
       bounded(out->track_title[i], sizeof out->track_title[i], out->title);
     } else {
-      out->len[i] = track_len_sec(&t);
+      out->len[i] = real_track_len((disk68_t *)disk, i);
       bounded(out->track_title[i], sizeof out->track_title[i],
               t.title && t.title[0] ? t.title : out->title);
     }
@@ -242,6 +426,7 @@ int sc68_player_info_mem(const unsigned char *data, size_t len, sc68_info *out)
   disk = sc68_disk_load_mem(data, (int)len);
   if (!disk)
     return -1;
+  fix_replay_loadaddr(disk);
   rc = fill_info_from_disk(disk, out);
   sc68_disk_free(disk);
   return rc;
@@ -289,8 +474,9 @@ static int start_track(sc68_player *p, int track0)
     track0 = p->tracks - 1;
   if (sc68_play(p->sc68, track0 + 1, loop) < 0)
     return -1;
-  /* Apply posted track change so the first Process emits audio. */
-  sc68_process(p->sc68, 0, 0);
+  /* Apply posted track change (loads external replay, runs init). */
+  if (sc68_process(p->sc68, 0, 0) == SC68_ERROR)
+    return -1;
   p->track = track0;
   p->pos_sec = 0.0;
   p->ended = 0;
@@ -317,6 +503,7 @@ sc68_player *sc68_player_open(const unsigned char *data, size_t len, int rate)
   disk = sc68_disk_load_mem(data, (int)len);
   if (!disk)
     return 0;
+  fix_replay_loadaddr(disk);
   memset(&info, 0, sizeof info);
   if (fill_info_from_disk(disk, &info) != 0) {
     sc68_disk_free(disk);
@@ -362,16 +549,14 @@ sc68_player *sc68_player_open(const unsigned char *data, size_t len, int rate)
     sc68_player_close(p);
     return 0;
   }
-  /* sc68_open does not free the disk on failure only if we pass ownership
-   * incorrectly. load_disk with free_on_close=0: we free disk ourselves
-   * only if open fails. On success sc68 does NOT free it (tobe3=0).
-   * So we must either let sc68 own it or keep it. Use sc68_load_mem instead
-   * so the instance owns a fresh load. */
-  sc68_disk_free(disk);
-  if (sc68_load_mem(p->sc68, p->owned, (int)p->owned_len) != 0) {
+  /* Keep this disk (load-address + detected lengths already applied).
+   * sc68_open does not take ownership (tobe3=0). */
+  if (sc68_open(p->sc68, disk) != 0) {
+    sc68_disk_free(disk);
     sc68_player_close(p);
     return 0;
   }
+  p->disk = disk;
   if (start_track(p, 0) != 0) {
     sc68_player_close(p);
     return 0;
@@ -387,6 +572,10 @@ void sc68_player_close(sc68_player *p)
     sc68_xmp_snap_reset(p->sc68);
     sc68_destroy(p->sc68);
     p->sc68 = 0;
+  }
+  if (p->disk) {
+    sc68_disk_free(p->disk);
+    p->disk = 0;
   }
   free(p->owned);
   free(p);
