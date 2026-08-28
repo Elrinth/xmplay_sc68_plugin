@@ -1,0 +1,12 @@
+dist/
+release/
+third_party/sc68/
+third_party/build*/
+*.o
+*.a
+*.dll
+*.exe
+*.zip
+tests/samples/*.sc68
+tests/samples/*.snd
+tests/samples/*.sndh
