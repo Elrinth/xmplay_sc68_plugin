@@ -3,7 +3,7 @@
 #   /usr/bin/make          # host tests + 32-bit DLL
 #   /usr/bin/make dll      # dist/xmp-sc68.dll
 #   /usr/bin/make test     # host render/seek tests
-#   /usr/bin/make pack     # /workspace/xmp-sc68-1.0.1.zip
+#   /usr/bin/make pack     # /workspace/xmp-sc68-1.0.2.zip
 #
 # If `make` is a wrapper, invoke GNU make explicitly.
 
@@ -150,24 +150,28 @@ $(DIST)/test_sc68_render: $(ROOT)/tests/test_sc68_render.c $(LINUX_OBJS)
 	mkdir -p $(DIST)
 	$(CC) $(CFLAGS_L) -o $@ $(ROOT)/tests/test_sc68_render.c $(LINUX_OBJS) -lz -lm
 
-$(DIST)/xmp-sc68.dll: $(SRC)/xmp-sc68.cpp $(SRC)/xmp-sc68.def $(WIN_OBJS)
+$(OBJW)/xmp-sc68.res: $(SRC)/xmp-sc68.rc
+	@mkdir -p $(dir $@)
+	$(I686_HOST)-windres -O coff -o $@ $<
+
+$(DIST)/xmp-sc68.dll: $(SRC)/xmp-sc68.cpp $(SRC)/xmp-sc68.def $(WIN_OBJS) $(OBJW)/xmp-sc68.res
 	mkdir -p $(DIST)
 	$(I686_CXX) -shared -O2 -DNDEBUG -std=c++14 \
 	  -static -static-libgcc -static-libstdc++ \
 	  -I$(INC) $(INCS) $(DEFS) -DWIN32 -D_WIN32 \
-	  -o $@ $(SRC)/xmp-sc68.cpp $(SRC)/xmp-sc68.def $(WIN_OBJS) \
+	  -o $@ $(SRC)/xmp-sc68.cpp $(SRC)/xmp-sc68.def $(WIN_OBJS) $(OBJW)/xmp-sc68.res \
 	  -Wl,--kill-at -Wl,--add-stdcall-alias \
 	  -lz -lshlwapi -lwinmm -luser32 -lgdi32 -Wl,-s
 	$(I686_HOST)-objdump -p $@ | grep -E 'dll name|XMPIN_GetInterface|file format' || true
 	file $@
 
 pack: dll
-	rm -f /workspace/xmp-sc68-1.0.1.zip
+	rm -f /workspace/xmp-sc68-1.0.2.zip
 	mkdir -p $(DIST)/pack
 	cp -f $(DIST)/xmp-sc68.dll $(ROOT)/README.md $(DIST)/pack/
-	cd $(DIST)/pack && zip -9 /workspace/xmp-sc68-1.0.1.zip xmp-sc68.dll README.md
+	cd $(DIST)/pack && zip -9 /workspace/xmp-sc68-1.0.2.zip xmp-sc68.dll README.md
 	rm -rf $(DIST)/pack
-	ls -l /workspace/xmp-sc68-1.0.zip
+	ls -l /workspace/xmp-sc68-1.0.2.zip
 
 clean:
 	rm -rf $(DIST)/xmp-sc68.dll $(DIST)/test_sc68_render $(DIST)/obj $(DIST)/obj-i686 $(DIST)/pack

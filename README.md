@@ -1,4 +1,4 @@
-# xmp-sc68 1.0.1
+# xmp-sc68 1.0.2
 
 Native **32-bit** XMPlay input plugin for Atari ST and Amiga music.
 
@@ -8,7 +8,7 @@ This is **not** a Winamp `in_sc68` wrapper.
 ## Install
 
 Copy `xmp-sc68.dll` next to `xmplay.exe` (or into XMPlay's plugin folder)
-and restart XMPlay. Classic XMPlay is **32-bit only** — this DLL is PE32
+and restart XMPlay. The DLL carries a Windows VERSIONINFO resource (FILEVERSION 1.0.2.0) so XMPlay can include it in update notifications. Classic XMPlay is **32-bit only** — this DLL is PE32
 i386. A 64-bit build will not load.
 
 XMPlay's *Supported file types* list shows **sc68**, **sndh**, and **snd**
