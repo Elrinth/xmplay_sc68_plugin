@@ -1,4 +1,4 @@
-# xmp-sc68 1.0.0
+# xmp-sc68 1.0.1
 
 Native **32-bit** XMPlay input plugin for Atari ST and Amiga music.
 
@@ -11,16 +11,29 @@ Copy `xmp-sc68.dll` next to `xmplay.exe` (or into XMPlay's plugin folder)
 and restart XMPlay. Classic XMPlay is **32-bit only** — this DLL is PE32
 i386. A 64-bit build will not load.
 
+XMPlay's *Supported file types* list shows **sc68**, **sndh**, and **snd**
+(one description: `SC68 / SNDH`).
+
 ## Formats
 
 | Extension | Notes |
 |-----------|--------|
-| `.sc68`   | sc68 disk (Atari ST / Amiga, including TFMX) |
+| `.sc68`   | sc68 disk (Atari ST / Amiga, including TFMX and JamCracker) |
 | `.sndh`   | Atari ST SNDH (raw or Pack-Ice `ICE!`) |
 | `.snd`    | Same as SNDH (common SNDH archive name) |
 
 CheckFile only reads a short prefix (`SC68`, `ICE!`, or `SNDH`) so adding
 songs to the playlist stays fast.
+
+External-replay sc68 files (JamCrackerPro and other Amiga players baked
+into the DLL via `replay.inc.h`) play without a `Replay/` folder on disk.
+
+## Length
+
+Track time comes from the SNDH `TIME` tag or sc68's timedb when present
+(e.g. cream-1996.sndh). If neither is known, GetFileInfo / Open skip-render
+until a loop, trailing silence, or a 10-minute cap — they do **not** fake
+3:00. CheckFile never does this (still a 2 KB magic peek).
 
 ## Seeking
 
